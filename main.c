@@ -92,30 +92,45 @@ void showFrames(FILE *file) {
     printf("|\n");
 }
 
-void changeFrame(FILE *file, char prop_name[4], unsigned char *newValue) {
-    int doneFlag = 0;
-    FILE *tmpFile = fopen("tmp.mp3", "wb");
-    FRAMEHEADER tmp;
+void changeFrame(FILE *file, char prop_name[4], unsigned char *newValue, char *arg1) {
     unsigned char mainHeader[10], *tmpValue;
     char c;
+    int doneFlag = 0;
+    unsigned int frameSize, metaDataSize;
+    FILE *tmpFile = fopen("tmp.mp3", "wb+");
+    FRAMEHEADER tmp;
+
     fread(mainHeader, 1, 10, file);
-    for (int i=0; i<10; i++){
-        fputc(mainHeader[i], tmpFile);
-    }//исправить, сайз должен обновляться
-    unsigned int frameSize;
+    metaDataSize = (mainHeader[6] << 21) + (mainHeader[7] << 14) + (mainHeader[8] << 7) + (mainHeader[9]);
+    fseek(tmpFile, 10, SEEK_SET);
+
     do {
         fread(&tmp, sizeof(FRAMEHEADER), 1, file);
         frameSize = (tmp.rSize[0] << 21) + (tmp.rSize[1] << 14) + (tmp.rSize[2] << 7) + tmp.rSize[3];
-        if (frameSize == 0) {
-            printf("Invalid input.\n");
-            fclose(file);
-            remove("tmp.mp3");
-            return;
-        }
         tmpValue = malloc(frameSize);
         if (strcmp(prop_name, tmp.name) == 0) {
-            fseek(file, 0, SEEK_CUR + frameSize);
+            fseek(file, frameSize, SEEK_CUR);
             int s = strlen(newValue);
+            if (frameSize > s) {
+                metaDataSize = metaDataSize - (frameSize - s);
+                mainHeader[9] = metaDataSize % 128;
+                metaDataSize /= 128;
+                mainHeader[8] = metaDataSize % 128;
+                metaDataSize /= 128;
+                mainHeader[7] = metaDataSize % 128;
+                metaDataSize /= 128;
+                mainHeader[6] = metaDataSize % 128;
+            } else if (s > frameSize) {
+                metaDataSize = metaDataSize + (s - frameSize);
+                mainHeader[9] = metaDataSize % 128;
+                metaDataSize /= 128;
+                mainHeader[8] = metaDataSize % 128;
+                metaDataSize /= 128;
+                mainHeader[7] = metaDataSize % 128;
+                metaDataSize /= 128;
+                mainHeader[6] = metaDataSize % 128;
+            }
+
             tmp.rSize[3] = s % 128;
             s /= 128;
             tmp.rSize[2] = s % 128;
@@ -123,35 +138,43 @@ void changeFrame(FILE *file, char prop_name[4], unsigned char *newValue) {
             tmp.rSize[1] = s % 128;
             s /= 128;
             tmp.rSize[0] = s % 128;
-            fprintf(tmpFile, "%s", tmp.name);
-            fprintf(tmpFile, "%s", tmp.rSize);
-            fprintf(tmpFile, "%s", tmp.flags);
-            fprintf(tmpFile, "%s", newValue);
+            fwrite(&tmp, sizeof(FRAMEHEADER), 1, tmpFile);
+            fwrite(newValue, 1, strlen(newValue), tmpFile);
             doneFlag = 1;
         } else {
             fread(tmpValue, 1, frameSize, file);
-            fprintf(tmpFile, "%s", tmp.name);
-            fprintf(tmpFile, "%s", tmp.rSize);
-            fprintf(tmpFile, "%s", tmp.flags);
-            fprintf(tmpFile, "%s", tmpValue);
+            fwrite(&tmp, sizeof(FRAMEHEADER), 1, tmpFile);
+            fwrite(tmpValue, 1, frameSize, tmpFile);
         }
     } while (doneFlag == 0);
-
-    do {
-        c = getc(file);
+//    if (doneFlag == 0) {
+//        printf("Invalid input.\n");
+//        free(tmpValue);
+//        fclose(file);
+//        remove("tmp.mp3");
+//        return;
+//    }
+    c = getc(file);
+    while (!feof(file)) {
         fputc(c, tmpFile);
-    } while (c != EOF);//не записывает, почему?
+        c = getc(file);
 
-
-    fseek(file, 0, SEEK_SET);
+    }
     fseek(tmpFile, 0, SEEK_SET);
-    do {
-        c = getc(tmpFile);
-        fputc(c, file);
-    } while (c != EOF);
+    fwrite(mainHeader, 1, 10, tmpFile);
     free(tmpValue);
+    fseek(tmpFile, 0, SEEK_SET);
+    file = freopen(arg1, "wb", file);
+
+    c = getc(tmpFile);
+    while (!feof(tmpFile)) {
+        fputc(c, file);
+        c = getc(tmpFile);
+
+    }
+    fclose(tmpFile);
     fclose(file);
-    remove("tmp.mp3");
+
 }
 
 int main(int argc, char *argv[]) {
@@ -190,16 +213,16 @@ int main(int argc, char *argv[]) {
         sscanf(argv[2], "%6s", arg2);
         sscanf(argv[3], "%8s", arg3);
 
-        if (strcmp(arg2, "--set=")!=0) {
+        if (strcmp(arg2, "--set=") != 0) {
             printf("Invalid second argument.\n");
             return 1;
         }
-        if (strcmp(arg3, "--value=")!=0) {
+        if (strcmp(arg3, "--value=") != 0) {
             printf("Invalid third argument.\n");
             return 1;
         }
         //пишем самую жопную функцию
-        changeFrame(oldFile, argv[2] + 6, argv[3] + 8);
+        changeFrame(oldFile, argv[2] + 6, argv[3] + 8, argv[1] + 11);
 
     }
     return 0;
