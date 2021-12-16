@@ -222,7 +222,7 @@ int main(int argc, char *argv[]) {
             return 1;
         }
         //пишем самую жопную функцию
-        changeFrame(oldFile, argv[2] + 6, argv[3] + 8, argv[1] + 11);
+        changeFrame(oldFile, argv[2] + 7, argv[3] + 9, argv[1] + 11);
 
     }
     return 0;
